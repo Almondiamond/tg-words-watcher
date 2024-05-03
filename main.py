@@ -14,6 +14,7 @@ async def main():
     c = dotenv_values(".env")
     print('env: ', c)
     print(os.listdir(os.curdir))
+    print(os.getcwd())
     bot = Bot(token=c.get('BOT_TOKEN'), parse_mode=ParseMode.HTML)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
