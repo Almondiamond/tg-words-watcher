@@ -7,11 +7,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from handlers import router
 from dotenv import load_dotenv, dotenv_values
-
+import os
 
 async def main():
     load_dotenv()
     c = dotenv_values(".env")
+    print('env: ', c)
+    print(os.listdir(os.curdir))
     bot = Bot(token=c.get('BOT_TOKEN'), parse_mode=ParseMode.HTML)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
