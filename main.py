@@ -1,15 +1,21 @@
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from dotenv import load_dotenv, dotenv_values
 
 from handlers import router
-from dotenv import load_dotenv, dotenv_values
-import os
+from peewee import *
+from models.word import Word
+
 
 async def main():
+    db = SqliteDatabase('word.db')
+    db.connect()
+    db.create_tables([Word])
     load_dotenv()
     c = dotenv_values(".env")
     print('env: ', c)

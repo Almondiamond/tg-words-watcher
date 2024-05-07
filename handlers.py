@@ -1,29 +1,17 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from aiogram.types.callback_query import CallbackQuery
 from dotenv import dotenv_values
 
 import kb
+from models.word import Word
 from states import Gen
 
 router = Router()
 
-words_watching = []
-
 OWNER_ID = dotenv_values(".env").get('OWNER_ID')
-
-
-class RestrictToOwner(Filter):
-    def __init__(self, owner_id: int) -> None:
-        self.owner_id = owner_id
-
-    async def __call__(self, message: Message) -> bool:
-        condition = str(message.from_user.id) == str(self.owner_id)
-        return condition
-
 
 start_message = ('Привет. Я помогу тебе отслеживать интересные сообщения. '
                  'Просто скажи мне, какие слова тебя интересуют и добавляй в нужную группу, '
@@ -35,7 +23,15 @@ new_tracking_word_message = 'Хорошо, теперь отслеживаю с�
 word_removed_message = 'Слово {0} больше не отслеживается'
 
 
-@router.message(RestrictToOwner(OWNER_ID), Command('start'))
+def words_to_strings(words: list[Word]) -> list[str]:
+    return [word.content for word in words]
+
+
+def get_user_words(user_id: int) -> list[Word]:
+    return Word.select().where(Word.user_id == user_id)
+
+
+@router.message(Command('start'))
 async def start_handler(msg: Message):
     await msg.answer(
         start_message,
@@ -45,9 +41,10 @@ async def start_handler(msg: Message):
 
 @router.callback_query(F.data == 'words_list')
 async def show_words_list(callback_query: CallbackQuery):
-    if len(words_watching) > 0:
+    user_words: list[str] = words_to_strings(get_user_words(callback_query.from_user.id))
+    if len(user_words) > 0:
         await callback_query.message.edit_text(
-            'Сейчас отслеживаются слова: ' + ', '.join(words_watching),
+            'Сейчас отслеживаются слова: ' + ', '.join(user_words),
             reply_markup=kb.words_tracking
         )
         return
@@ -61,7 +58,7 @@ async def show_words_list(callback_query: CallbackQuery):
 async def add_word_prompt(callback_query: CallbackQuery, state: FSMContext):
     await state.set_state(Gen.add_word_prompt)
     await callback_query.message.edit_text(
-        'Напиши мне какое слово отслеживать..',
+        'Какое слово добавить?',
         reply_markup=kb.exit
     )
 
@@ -69,8 +66,14 @@ async def add_word_prompt(callback_query: CallbackQuery, state: FSMContext):
 @router.message(Gen.add_word_prompt)
 async def new_word_added(msg: Message, state: FSMContext):
     prompt = msg.text
-    if not (prompt in words_watching):
-        words_watching.append(prompt)
+    user_words: list[Word] = Word.select().where(Word.user_id == msg.from_user.id)
+
+    def get_text(word: Word) -> str:
+        return word.content
+
+    words_to_string = [get_text(x) for x in user_words]
+    if not (prompt in words_to_string):
+        Word.create(user_id=msg.from_user.id, content=prompt)
     await state.clear()
     await msg.answer(
         new_tracking_word_message.format(prompt.lower()),
@@ -80,7 +83,7 @@ async def new_word_added(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == 'words_delete')
 async def delete_word_prompt(callback_query: CallbackQuery, state: FSMContext):
-    if len(words_watching) > 0:
+    if len(get_user_words(callback_query.from_user.id)) > 0:
         await state.set_state(Gen.delete_word_prompt)
         await callback_query.message.edit_text(
             'Какое слово ты хочешь удалить?',
@@ -91,8 +94,10 @@ async def delete_word_prompt(callback_query: CallbackQuery, state: FSMContext):
 @router.message(Gen.delete_word_prompt)
 async def word_deleted(msg: Message, state: FSMContext):
     prompt = msg.text.lower()
-    if prompt in words_watching:
-        words_watching.remove(prompt)
+    user_words: list[str] = words_to_strings(get_user_words(msg.from_user.id))
+    if prompt in user_words:
+        query = Word.delete().where(Word.user_id == msg.from_user.id, Word.content == prompt)
+        query.execute()
     await state.clear()
     await msg.answer(
         word_removed_message.format(prompt),
@@ -111,17 +116,17 @@ async def back_to_menu(callback_query: CallbackQuery, state: FSMContext):
 
 @router.message()
 async def message_handler(msg: Message):
+    print(msg.from_user.id)
+    print('OWNER_ID: ', OWNER_ID)
     if msg.chat.type == 'private':
-        if str(msg.from_user.id) != str(OWNER_ID):
-            await msg.answer("Я работаю, но мне запретили с тобой общаться, извини.")
-        else:
-            await msg.answer(
-                'Я тебя не понял. Лучше нажимай кнопочки ниже.',
-                reply_markup=kb.menu
-            )
+        await msg.answer(
+            'Я тебя не понял. Лучше нажимай кнопочки ниже.',
+            reply_markup=kb.menu
+        )
 
     elif msg.chat.type == 'group':
-        words_to_watch_lowercase = [x.lower() for x in words_watching]
+        words_watching = words_to_strings(get_user_words(msg.from_user.id))
+        words_to_watch_lowercase = [x.lower() for x in words_watching[msg.from_user.id]]
         words = [x.lower() for x in msg.text.split()]
 
         if any(w in words_to_watch_lowercase for w in words):

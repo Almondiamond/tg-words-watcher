@@ -5,3 +5,5 @@ venv
 venv311
 
 /.idea
+
+word.db
