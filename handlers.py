@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import Command
+from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from aiogram.types.callback_query import CallbackQuery
@@ -11,8 +12,6 @@ from states import Gen
 
 router = Router()
 
-OWNER_ID = dotenv_values(".env").get('OWNER_ID')
-
 start_message = ('Привет. Я помогу тебе отслеживать интересные сообщения. '
                  'Просто скажи мне, какие слова тебя интересуют и добавляй в нужную группу, '
                  'а я буду пересылать тебе нужные сообщения. '
@@ -21,6 +20,7 @@ start_message = ('Привет. Я помогу тебе отслеживать 
 new_tracking_word_message = 'Хорошо, теперь отслеживаю слово {0}'
 
 word_removed_message = 'Слово {0} больше не отслеживается'
+c = dotenv_values(".env")
 
 
 def words_to_strings(words: list[Word]) -> list[str]:
@@ -31,7 +31,13 @@ def get_user_words(user_id: int) -> list[Word]:
     return Word.select().where(Word.user_id == user_id)
 
 
-@router.message(Command('start'))
+class RestrictToOwner(Filter):
+    async def __call__(self, message: Message) -> bool:
+        condition = str(message.from_user.id) == str(c.get('OWNER_ID'))
+        return condition
+
+
+@router.message(RestrictToOwner(), Command('start'))
 async def start_handler(msg: Message):
     await msg.answer(
         start_message,
@@ -73,7 +79,7 @@ async def new_word_added(msg: Message, state: FSMContext):
 
     words_to_string = [get_text(x) for x in user_words]
     if not (prompt in words_to_string):
-        Word.create(user_id=msg.from_user.id, content=prompt)
+        Word.create(user_id=msg.from_user.id, content=prompt.lower())
     await state.clear()
     await msg.answer(
         new_tracking_word_message.format(prompt.lower()),
@@ -116,18 +122,23 @@ async def back_to_menu(callback_query: CallbackQuery, state: FSMContext):
 
 @router.message()
 async def message_handler(msg: Message):
-    print(msg.from_user.id)
-    print('OWNER_ID: ', OWNER_ID)
     if msg.chat.type == 'private':
-        await msg.answer(
-            'Я тебя не понял. Лучше нажимай кнопочки ниже.',
-            reply_markup=kb.menu
-        )
+        if str(msg.from_user.id) != str(c.get('OWNER_ID')):
+            await msg.answer("Я работаю, но мне запретили с тобой общаться, извини.")
+        else:
+            await msg.answer(
+                'Я тебя не понял. Лучше нажимай кнопочки ниже.',
+                reply_markup=kb.menu
+            )
 
-    elif msg.chat.type == 'group':
-        words_watching = words_to_strings(get_user_words(msg.from_user.id))
-        words_to_watch_lowercase = [x.lower() for x in words_watching[msg.from_user.id]]
-        words = [x.lower() for x in msg.text.split()]
+    # for dev purposes: uncomment line below and comment the following line
+    elif msg.chat.type == 'group' and msg.text:
+        # elif msg.chat.type == 'group' and msg.text and str(msg.from_user.id) != c.get('OWNER_ID'):
+        words_instances = Word.select()
+        words_msg = [x.lower() for x in msg.text.split()]
 
-        if any(w in words_to_watch_lowercase for w in words):
-            await msg.forward(OWNER_ID)
+        for instance in words_instances:
+            if not (instance.content in words_msg):
+                continue
+            await msg.forward(c.get('OWNER_ID'))
+            break

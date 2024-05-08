@@ -1,14 +1,13 @@
 import asyncio
 import logging
-import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv, dotenv_values
+from peewee import *
 
 from handlers import router
-from peewee import *
 from models.word import Word
 
 
@@ -18,9 +17,6 @@ async def main():
     db.create_tables([Word])
     load_dotenv()
     c = dotenv_values(".env")
-    print('env: ', c)
-    print(os.listdir(os.curdir))
-    print(os.getcwd())
     bot = Bot(token=c.get('BOT_TOKEN'), parse_mode=ParseMode.HTML)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
